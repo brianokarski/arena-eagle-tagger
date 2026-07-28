@@ -7,13 +7,15 @@ import { saveState } from "./state.js";
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const TAXONOMY_FILE = path.join(ROOT, "taxonomy.json");
 
-const MEDIA_TYPES = {
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".webp": "image/webp",
-};
+// File extensions lie (webp saved as .png is common) — sniff the magic bytes.
+function sniffMediaType(buf) {
+  if (buf.length < 12) return null;
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return "image/png";
+  if (buf[0] === 0xff && buf[1] === 0xd8) return "image/jpeg";
+  if (buf.subarray(0, 4).toString("ascii") === "GIF8") return "image/gif";
+  if (buf.subarray(0, 4).toString("ascii") === "RIFF" && buf.subarray(8, 12).toString("ascii") === "WEBP") return "image/webp";
+  return null;
+}
 
 export function loadTaxonomy() {
   const raw = JSON.parse(fsSync.readFileSync(TAXONOMY_FILE, "utf8"));
@@ -82,7 +84,8 @@ export async function runAiTagging({ config, eagle, state, limit = Infinity, log
   const prompt = buildPrompt(taxonomy, allowExtra, maxExtra);
 
   const { default: Anthropic } = await import("@anthropic-ai/sdk");
-  const client = new Anthropic(); // reads ANTHROPIC_API_KEY from the environment
+  // Key from config.json (gitignored) or the ANTHROPIC_API_KEY environment variable.
+  const client = new Anthropic(config.anthropicApiKey ? { apiKey: config.anthropicApiKey } : {});
 
   const { listArenaItems } = await import("./sync.js");
   const items = await listArenaItems(eagle);
@@ -103,12 +106,13 @@ export async function runAiTagging({ config, eagle, state, limit = Infinity, log
       if (!item) return;
       try {
         const thumbPath = await eagle.thumbnailPath(item.id);
-        const mediaType = MEDIA_TYPES[path.extname(thumbPath).toLowerCase()];
+        const buf = await fs.readFile(thumbPath);
+        const mediaType = sniffMediaType(buf);
         if (!mediaType) {
-          state.aiTagged[item.id] = true; // not an image thumbnail; skip permanently
+          state.aiTagged[item.id] = true; // not a recognizable image; skip permanently
           continue;
         }
-        const data = (await fs.readFile(thumbPath)).toString("base64");
+        const data = buf.toString("base64");
 
         const response = await client.messages.create({
           model,

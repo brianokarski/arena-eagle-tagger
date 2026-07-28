@@ -67,7 +67,9 @@ export class EagleClient {
   }
 
   // Returns the local filesystem path of the item's thumbnail.
+  // Eagle URL-encodes the path (%20 for spaces etc.), so decode it.
   async thumbnailPath(id) {
-    return this.request("/api/item/thumbnail", { params: { id } });
+    const encoded = await this.request("/api/item/thumbnail", { params: { id } });
+    return decodeURIComponent(encoded);
   }
 }
