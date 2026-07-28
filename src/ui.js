@@ -10,37 +10,61 @@ const PAGE = `<!doctype html>
 <meta charset="utf-8">
 <title>Are.na → Eagle: channel picker</title>
 <style>
-  :root { color-scheme: light dark; }
+  /* Styled after are.na: Arial/Helvetica (their "areal" fallback stack), small
+     bold UI text, 3px radii, black/white/gray palette in both themes. */
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff; --panel: #ffffff; --text: #000000; --muted: #6e6e6e; --faint: #b9b9b9;
+    --line: #e0e0e0; --hover: #f2f2f2; --accent: #000000; --accent-text: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #000000; --panel: #1a1a1a; --text: #e5e5e5; --muted: #999999; --faint: #5e5e5e;
+      --line: #2b2b2b; --hover: #1a1a1a; --accent: #e5e5e5; --accent-text: #000000;
+    }
+  }
   * { box-sizing: border-box; }
-  body { font-family: system-ui, sans-serif; max-width: 860px; margin: 0 auto; padding: 1rem 1rem 6rem; }
-  h1 { font-size: 1.15rem; }
-  .toolbar { position: sticky; top: 0; background: Canvas; padding: .6rem 0; z-index: 2; border-bottom: 1px solid rgba(128,128,128,.25); }
-  #search { width: 100%; padding: .55rem .8rem; font-size: 1rem; border-radius: 8px; border: 1px solid rgba(128,128,128,.4); }
-  .tabs { display: flex; gap: .4rem; margin-bottom: .6rem; }
-  .tabs button { flex: 1; padding: .55rem .8rem; font-size: .95rem; border-radius: 8px; border: 1px solid rgba(128,128,128,.4);
-                 background: transparent; cursor: pointer; }
-  .tabs button.active { background: Highlight; color: HighlightText; border-color: transparent; font-weight: 600; }
+  body { font-family: Arial, Helvetica, sans-serif; font-size: 13px; line-height: 1.35;
+         background: var(--bg); color: var(--text); max-width: 860px; margin: 0 auto; padding: 20px 20px 90px; }
+  h1 { font-size: 13px; font-weight: 700; margin: 0 0 4px; }
+  .muted { color: var(--muted); font-weight: 400; margin: 0 0 14px; }
+  code { font-family: inherit; color: var(--text); }
+  .toolbar { position: sticky; top: 0; background: var(--bg); padding: 10px 0 12px; z-index: 2; }
+  .tabs { display: flex; gap: 18px; margin-bottom: 12px; }
+  .tabs button { padding: 0; font-family: inherit; font-size: 13px; font-weight: 700; color: var(--faint);
+                 background: none; border: none; cursor: pointer; }
+  .tabs button:hover { color: var(--muted); }
+  .tabs button.active { color: var(--text); }
+  #search { width: 100%; padding: 8px 10px; font-family: inherit; font-size: 13px; border-radius: 3px;
+            border: 1px solid var(--line); background: var(--panel); color: var(--text); }
+  #search::placeholder { color: var(--faint); }
+  #search:focus { outline: none; border-color: var(--muted); }
   .panel[hidden] { display: none; }
-  h2 { font-size: .85rem; text-transform: uppercase; letter-spacing: .06em; opacity: .65; margin: 1.4rem 0 .3rem;
-       display: flex; align-items: baseline; gap: .8rem; }
-  h2 .bulk { font-size: .8rem; text-transform: none; letter-spacing: 0; }
-  h2 .bulk a { cursor: pointer; text-decoration: underline; opacity: .8; margin-right: .5rem; }
+  h2 { font-size: 13px; font-weight: 700; color: var(--muted); margin: 14px 0 6px;
+       display: flex; align-items: baseline; gap: 14px; }
+  h2 .bulk { font-weight: 700; }
+  h2 .bulk a { cursor: pointer; color: var(--faint); text-decoration: none; margin-right: 12px; }
+  h2 .bulk a:hover { color: var(--text); }
   ul { list-style: none; padding: 0; margin: 0; }
-  li { padding: .4rem .55rem; border-radius: 10px; display: flex; align-items: center; gap: .7rem; }
-  li:hover { background: rgba(128,128,128,.12); }
-  .thumbs { display: flex; gap: 3px; width: 178px; min-width: 178px; height: 42px; }
-  .thumbs img { width: 42px; height: 42px; object-fit: cover; border-radius: 5px; background: rgba(128,128,128,.15); }
-  .thumbs .empty { width: 42px; height: 42px; border-radius: 5px; background: rgba(128,128,128,.1); }
+  li { padding: 6px 8px 6px 0; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--line); }
+  li:hover { background: var(--hover); }
+  input[type=checkbox] { accent-color: var(--accent); width: 14px; height: 14px; margin: 0 0 0 2px; }
+  .thumbs { display: flex; gap: 4px; width: 190px; min-width: 190px; height: 44px; }
+  .thumbs img, .thumbs .empty { width: 44px; height: 44px; object-fit: cover; border-radius: 0;
+                                border: 1px solid var(--line); background: var(--panel); }
   .info { flex: 1; overflow: hidden; }
-  label { display: block; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .meta { opacity: .55; font-size: .8em; white-space: nowrap; }
-  a.open { text-decoration: none; opacity: .55; font-size: 1.05em; padding: .2rem .4rem; border-radius: 6px; }
-  a.open:hover { opacity: 1; background: rgba(128,128,128,.18); }
-  .savebar { position: fixed; bottom: 0; left: 0; right: 0; background: Canvas; border-top: 1px solid rgba(128,128,128,.25);
-             padding: .7rem 1rem; display: flex; align-items: center; gap: 1rem; justify-content: center; }
-  button { padding: .55rem 1.6rem; font-size: 1rem; border-radius: 8px; cursor: pointer; }
-  #status { opacity: .75; }
-  .muted { opacity: .6; }
+  label { display: block; font-weight: 700; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .meta { color: var(--muted); font-size: 12px; white-space: nowrap; margin-top: 1px; }
+  a.open { font-weight: 700; text-decoration: none; color: var(--faint); padding: 4px 6px; border-radius: 3px; }
+  a.open:hover { color: var(--text); }
+  .savebar { position: fixed; bottom: 0; left: 0; right: 0; background: var(--bg); border-top: 1px solid var(--line);
+             padding: 12px 20px; display: flex; align-items: center; gap: 14px; justify-content: center;
+             font-weight: 700; }
+  #picked { color: var(--muted); }
+  .savebar button { font-family: inherit; font-size: 13px; font-weight: 700; padding: 9px 22px; border-radius: 3px;
+                    border: none; background: var(--accent); color: var(--accent-text); cursor: pointer; }
+  .savebar button:hover { opacity: .85; }
+  #status { color: var(--muted); font-weight: 400; }
 </style>
 </head>
 <body>
