@@ -106,10 +106,17 @@ export async function resolveChannels(config, arena) {
   return channels.filter((c) => wanted.has(c.slug));
 }
 
+// Every synced item carries its are.na block backlink in the website/url
+// field — that's how we recognize imports, no marker tags needed.
+export async function listArenaItems(eagle) {
+  const items = await eagle.listItems({ limit: 100000 });
+  return items.filter((item) => (item.url ?? "").startsWith("https://www.are.na/block/"));
+}
+
 // Match freshly imported Eagle items back to their Are.na blocks by the
-// website field, so we can cross-link duplicates into extra folders later.
-async function recordEagleIds(eagle, state, arenaTag) {
-  const items = await eagle.listItems({ tags: arenaTag, limit: 100000 });
+// website field, so we can track duplicates across channels.
+async function recordEagleIds(eagle, state) {
+  const items = await listArenaItems(eagle);
   const byWebsite = new Map(items.map((item) => [item.url, item]));
   for (const [blockId, entry] of Object.entries(state.blocks)) {
     if (entry.eagleId) continue;
@@ -124,21 +131,23 @@ async function recordEagleIds(eagle, state, arenaTag) {
 // in each context). Eagle's public HTTP API ignores the `folders` field on
 // item/update, so physical multi-folder placement isn't possible from here —
 // we still send it in case a future Eagle version honors it.
-async function crossLinkDuplicates(eagle, state, duplicates, byWebsite, log) {
+async function crossLinkDuplicates(eagle, state, duplicates, byWebsite, tagCfg, log) {
   let linked = 0;
   for (const { blockId, slug } of duplicates) {
     const entry = state.blocks[blockId];
     const item = byWebsite.get(`https://www.are.na/block/${blockId}`);
     if (!item) continue;
-    const folderId = state.folders[slug];
-    const folders = [...new Set([...(item.folders ?? []), folderId])];
-    const tags = [...new Set([...(item.tags ?? []), `arena:${slug}`])];
     try {
-      await eagle.updateItem({ id: item.id, folders, tags });
+      if (tagCfg?.channelTag !== false) {
+        const folderId = state.folders[slug];
+        const folders = [...new Set([...(item.folders ?? []), folderId])];
+        const tags = [...new Set([...(item.tags ?? []), `arena:${slug}`])];
+        await eagle.updateItem({ id: item.id, folders, tags });
+      }
       entry.channels.push(slug);
       linked++;
     } catch (err) {
-      log(`  could not tag "${item.name}" with "${slug}": ${err.message}`);
+      log(`  could not record duplicate "${item.name}" for "${slug}": ${err.message}`);
     }
   }
   return linked;
@@ -156,13 +165,12 @@ export async function runSync({ config, arena, eagle, state, full = false, log =
   await ensureFolders(eagle, state, channels, config.eagle?.rootFolderName ?? "Are.na");
   saveState(state);
 
-  const arenaTag = (config.tags?.always ?? ["arena"])[0];
   let imported = 0;
   const duplicates = [];
 
   // Blocks already in the Eagle library (matched by are.na backlink) — makes
   // re-runs idempotent even if the state file lagged behind an interrupted sync.
-  const existing = await recordEagleIds(eagle, state, arenaTag);
+  const existing = await recordEagleIds(eagle, state);
 
   for (const channel of channels) {
     const slug = channel.slug;
@@ -208,8 +216,8 @@ export async function runSync({ config, arena, eagle, state, full = false, log =
   let linked = 0;
   if (imported || duplicates.length) {
     if (imported) await new Promise((r) => setTimeout(r, 3000));
-    const byWebsite = await recordEagleIds(eagle, state, arenaTag);
-    linked = await crossLinkDuplicates(eagle, state, duplicates, byWebsite, log);
+    const byWebsite = await recordEagleIds(eagle, state);
+    linked = await crossLinkDuplicates(eagle, state, duplicates, byWebsite, config.tags, log);
     saveState(state);
   }
 

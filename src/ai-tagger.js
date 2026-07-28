@@ -39,8 +39,8 @@ export async function runAiTagging({ config, eagle, state, log = console.log }) 
   const { default: Anthropic } = await import("@anthropic-ai/sdk");
   const client = new Anthropic(); // reads ANTHROPIC_API_KEY from the environment
 
-  const arenaTag = (config.tags?.always ?? ["arena"])[0];
-  const items = await eagle.listItems({ tags: arenaTag, limit: 10000 });
+  const { listArenaItems } = await import("./sync.js");
+  const items = await listArenaItems(eagle);
   const pending = items.filter((item) => !state.aiTagged[item.id]);
   if (!pending.length) {
     log("All synced items are already AI-tagged.");
