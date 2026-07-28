@@ -54,7 +54,9 @@ export function blockToItem(block, channelSlug, tagCfg = {}) {
   };
 }
 
-async function ensureFolders(eagle, state, channelSlugs, rootFolderName) {
+// Folders are named after the channel's display title and tracked by slug in
+// state, so renaming a channel on Are.na renames its Eagle folder too.
+async function ensureFolders(eagle, state, channels, rootFolderName) {
   const folders = await eagle.listFolders();
   const flat = [];
   const walk = (list) => {
@@ -76,11 +78,15 @@ async function ensureFolders(eagle, state, channelSlugs, rootFolderName) {
 
   const rootFolder = flat.find((f) => f.id === rootId);
   const rootChildren = rootFolder?.children ?? [];
-  for (const slug of channelSlugs) {
-    const known = state.folders[slug];
-    if (known && flat.some((f) => f.id === known)) continue;
-    const existing = rootChildren.find((f) => f.name === slug);
-    state.folders[slug] = existing?.id ?? (await eagle.createFolder(slug, rootId)).id;
+  for (const channel of channels) {
+    const name = channel.title || channel.slug;
+    const known = flat.find((f) => f.id === state.folders[channel.slug]);
+    if (known) {
+      if (known.name !== name) await eagle.renameFolder(known.id, name);
+      continue;
+    }
+    const existing = rootChildren.find((f) => f.name === name || f.name === channel.slug);
+    state.folders[channel.slug] = existing?.id ?? (await eagle.createFolder(name, rootId)).id;
   }
 }
 
@@ -144,13 +150,16 @@ export async function runSync({ config, arena, eagle, state, full = false, log =
     return { imported: 0, linked: 0 };
   }
 
-  const slugs = channels.map((c) => c.slug);
-  await ensureFolders(eagle, state, slugs, config.eagle?.rootFolderName ?? "Are.na");
+  await ensureFolders(eagle, state, channels, config.eagle?.rootFolderName ?? "Are.na");
   saveState(state);
 
   const arenaTag = (config.tags?.always ?? ["arena"])[0];
   let imported = 0;
   const duplicates = [];
+
+  // Blocks already in the Eagle library (matched by are.na backlink) — makes
+  // re-runs idempotent even if the state file lagged behind an interrupted sync.
+  const existing = await recordEagleIds(eagle, state, arenaTag);
 
   for (const channel of channels) {
     const slug = channel.slug;
@@ -162,6 +171,10 @@ export async function runSync({ config, arena, eagle, state, full = false, log =
       const entry = state.blocks[block.id];
       if (entry && !full) {
         if (!entry.channels.includes(slug)) duplicates.push({ blockId: String(block.id), slug });
+        continue;
+      }
+      if (!entry && existing.has(blockWebsite(block))) {
+        state.blocks[block.id] = { channels: [slug], name: block.title ?? null, syncedAt: new Date().toISOString() };
         continue;
       }
       const item = blockToItem(block, slug, config.tags);

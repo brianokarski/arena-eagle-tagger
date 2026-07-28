@@ -35,6 +35,10 @@ export class EagleClient {
     return this.request("/api/folder/list");
   }
 
+  async renameFolder(folderId, newName) {
+    return this.request("/api/folder/rename", { method: "POST", body: { folderId, newName } });
+  }
+
   async createFolder(folderName, parentId) {
     const body = { folderName };
     if (parentId) body.parent = parentId;
