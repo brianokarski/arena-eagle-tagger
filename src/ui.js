@@ -16,6 +16,11 @@ const PAGE = `<!doctype html>
   h1 { font-size: 1.15rem; }
   .toolbar { position: sticky; top: 0; background: Canvas; padding: .6rem 0; z-index: 2; border-bottom: 1px solid rgba(128,128,128,.25); }
   #search { width: 100%; padding: .55rem .8rem; font-size: 1rem; border-radius: 8px; border: 1px solid rgba(128,128,128,.4); }
+  .tabs { display: flex; gap: .4rem; margin-bottom: .6rem; }
+  .tabs button { flex: 1; padding: .55rem .8rem; font-size: .95rem; border-radius: 8px; border: 1px solid rgba(128,128,128,.4);
+                 background: transparent; cursor: pointer; }
+  .tabs button.active { background: Highlight; color: HighlightText; border-color: transparent; font-weight: 600; }
+  .panel[hidden] { display: none; }
   h2 { font-size: .85rem; text-transform: uppercase; letter-spacing: .06em; opacity: .65; margin: 1.4rem 0 .3rem;
        display: flex; align-items: baseline; gap: .8rem; }
   h2 .bulk { font-size: .8rem; text-transform: none; letter-spacing: 0; }
@@ -41,7 +46,10 @@ const PAGE = `<!doctype html>
 <body>
 <h1>Pick the Are.na channels to sync into Eagle</h1>
 <p class="muted">Thumbnails preview each board's latest blocks; ↗ opens the board on are.na. Checked channels are written to <code>config.json</code>; <code>npm run sync</code> imports them into your Eagle "Are.na" folder.</p>
-<div class="toolbar"><input id="search" type="search" placeholder="Filter channels…"></div>
+<div class="toolbar">
+  <div class="tabs" id="tabs"></div>
+  <input id="search" type="search" placeholder="Filter channels…">
+</div>
 <div id="sections">Loading channels…</div>
 <div class="savebar">
   <span id="picked"></span>
@@ -90,12 +98,28 @@ const observer = new IntersectionObserver((entries) => {
   pumpThumbs();
 }, { rootMargin: "300px" });
 
+let activeTab = 0;
+function showTab(i) {
+  activeTab = i;
+  document.querySelectorAll(".tabs button").forEach((b, j) => b.classList.toggle("active", i === j));
+  document.querySelectorAll(".panel").forEach((p, j) => (p.hidden = i !== j));
+}
+
 function render() {
   const host = document.getElementById("sections");
+  const tabs = document.getElementById("tabs");
   host.innerHTML = "";
-  for (const section of sections) {
+  tabs.innerHTML = "";
+  sections.forEach((section, i) => {
+    const tab = document.createElement("button");
+    tab.textContent = section.name + " (" + section.channels.length + ")";
+    tab.onclick = () => showTab(i);
+    tabs.append(tab);
+
+    const panel = document.createElement("div");
+    panel.className = "panel";
     const h2 = document.createElement("h2");
-    h2.textContent = section.name + " (" + section.channels.length + ")";
+    h2.textContent = section.name;
     const bulk = document.createElement("span");
     bulk.className = "bulk";
     const all = document.createElement("a");
@@ -146,8 +170,10 @@ function render() {
     }
     all.onclick = () => { ul.querySelectorAll("li:not([hidden]) input").forEach((cb) => (cb.checked = true)); updateCount(); };
     none.onclick = () => { ul.querySelectorAll("li:not([hidden]) input").forEach((cb) => (cb.checked = false)); updateCount(); };
-    host.append(h2, ul);
-  }
+    panel.append(h2, ul);
+    host.append(panel);
+  });
+  showTab(activeTab);
   updateCount();
 }
 
