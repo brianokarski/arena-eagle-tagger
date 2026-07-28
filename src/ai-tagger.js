@@ -1,6 +1,11 @@
 import fs from "node:fs/promises";
+import fsSync from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { saveState } from "./state.js";
+
+const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+const TAXONOMY_FILE = path.join(ROOT, "taxonomy.json");
 
 const MEDIA_TYPES = {
   ".png": "image/png",
@@ -10,43 +15,83 @@ const MEDIA_TYPES = {
   ".webp": "image/webp",
 };
 
-const TAG_SCHEMA = {
-  type: "json_schema",
-  schema: {
-    type: "object",
-    properties: {
-      tags: { type: "array", items: { type: "string" } },
-    },
-    required: ["tags"],
-    additionalProperties: false,
-  },
-};
+export function loadTaxonomy() {
+  const raw = JSON.parse(fsSync.readFileSync(TAXONOMY_FILE, "utf8"));
+  const taxonomy = {};
+  for (const [category, subs] of Object.entries(raw)) {
+    if (category.startsWith("_")) continue;
+    taxonomy[category] = subs;
+  }
+  return taxonomy;
+}
 
-function tagPrompt(maxTags) {
+export function vocabularyOf(taxonomy) {
+  return [...new Set(Object.entries(taxonomy).flatMap(([cat, subs]) => [cat, ...subs]))];
+}
+
+// Children imply their parent category (e.g. "portrait" -> "photography").
+export function expandParents(tags, taxonomy) {
+  const out = new Set(tags);
+  for (const [category, subs] of Object.entries(taxonomy)) {
+    if (subs.some((s) => out.has(s))) out.add(category);
+  }
+  return [...out];
+}
+
+function buildSchema(vocabulary, allowExtra) {
+  const properties = {
+    tags: { type: "array", items: { type: "string", enum: vocabulary } },
+  };
+  if (allowExtra) {
+    properties.extra = { type: "array", items: { type: "string" } };
+  }
+  return {
+    type: "json_schema",
+    schema: {
+      type: "object",
+      properties,
+      required: Object.keys(properties),
+      additionalProperties: false,
+    },
+  };
+}
+
+function buildPrompt(taxonomy, allowExtra, maxExtra) {
+  const lines = Object.entries(taxonomy)
+    .map(([cat, subs]) => (subs.length ? `- ${cat}: ${subs.join(", ")}` : `- ${cat}`))
+    .join("\n");
   return (
-    `Look at this image and produce up to ${maxTags} lowercase tags for a design reference library. ` +
-    `Cover: subject matter, medium/format (e.g. editorial-layout, poster, ui-screenshot, photograph, 3d-render), ` +
-    `visual style (e.g. brutalism, minimal, retro), and dominant palette (e.g. warm-tones, monochrome). ` +
-    `Use hyphens instead of spaces. Only include tags you are confident about.`
+    `You are tagging a design reference library. Classify this image using ONLY tags from this vocabulary (categories and their subcategories):\n${lines}\n\n` +
+    `Rules: pick every tag that clearly applies; include the subcategory when one fits (e.g. a studio photo gets "photography" and "studio"). ` +
+    `Omit anything you are not confident about — no tags is better than wrong tags.` +
+    (allowExtra
+      ? ` Additionally, you may suggest up to ${maxExtra} short lowercase "extra" tags outside the vocabulary for notable qualities the vocabulary misses (e.g. a medium, era, or technique).`
+      : "")
   );
 }
 
-export async function runAiTagging({ config, eagle, state, log = console.log }) {
+export async function runAiTagging({ config, eagle, state, limit = Infinity, log = console.log }) {
   const aiCfg = config.aiTags ?? {};
   const model = aiCfg.model ?? "claude-opus-5";
-  const maxTags = aiCfg.maxTags ?? 8;
+  const allowExtra = aiCfg.extraTags !== false;
+  const maxExtra = aiCfg.maxExtra ?? 3;
+
+  const taxonomy = loadTaxonomy();
+  const vocabulary = vocabularyOf(taxonomy);
+  const schema = buildSchema(vocabulary, allowExtra);
+  const prompt = buildPrompt(taxonomy, allowExtra, maxExtra);
 
   const { default: Anthropic } = await import("@anthropic-ai/sdk");
   const client = new Anthropic(); // reads ANTHROPIC_API_KEY from the environment
 
   const { listArenaItems } = await import("./sync.js");
   const items = await listArenaItems(eagle);
-  const pending = items.filter((item) => !state.aiTagged[item.id]);
+  const pending = items.filter((item) => !state.aiTagged[item.id]).slice(0, limit);
   if (!pending.length) {
     log("All synced items are already AI-tagged.");
     return { tagged: 0 };
   }
-  log(`AI-tagging ${pending.length} item(s) with ${model}...`);
+  log(`AI-tagging ${pending.length} item(s) with ${model} against ${vocabulary.length} vocabulary tags...`);
 
   let tagged = 0;
   const CONCURRENCY = 3;
@@ -68,13 +113,13 @@ export async function runAiTagging({ config, eagle, state, log = console.log }) 
         const response = await client.messages.create({
           model,
           max_tokens: 4096,
-          output_config: { effort: "low", format: TAG_SCHEMA },
+          output_config: { effort: "low", format: schema },
           messages: [
             {
               role: "user",
               content: [
                 { type: "image", source: { type: "base64", media_type: mediaType, data } },
-                { type: "text", text: tagPrompt(maxTags) },
+                { type: "text", text: prompt },
               ],
             },
           ],
@@ -85,18 +130,21 @@ export async function runAiTagging({ config, eagle, state, log = console.log }) 
           continue;
         }
         const text = response.content.find((b) => b.type === "text")?.text ?? "{}";
-        const newTags = (JSON.parse(text).tags ?? [])
-          .slice(0, maxTags)
-          .map((t) => t.toLowerCase().trim().replace(/\s+/g, "-"));
+        const parsed = JSON.parse(text);
+        const vocabTags = expandParents(parsed.tags ?? [], taxonomy);
+        const extraTags = (parsed.extra ?? [])
+          .slice(0, maxExtra)
+          .map((t) => t.toLowerCase().trim().replace(/\s+/g, " "))
+          .filter((t) => t && !vocabulary.includes(t));
 
-        const merged = [...new Set([...(item.tags ?? []), ...newTags])];
-        await eagle.updateItem({ id: item.id, tags: merged });
+        const merged = [...new Set([...(item.tags ?? []), ...vocabTags, ...extraTags])];
+        if (merged.length > (item.tags ?? []).length) {
+          await eagle.updateItem({ id: item.id, tags: merged });
+        }
         state.aiTagged[item.id] = true;
         tagged++;
-        if (tagged % 5 === 0) {
-          saveState(state);
-          log(`  tagged ${tagged}/${pending.length}`);
-        }
+        log(`  [${tagged}/${pending.length}] "${item.name.slice(0, 40)}" -> ${[...vocabTags, ...extraTags].join(", ") || "(no tags)"}`);
+        if (tagged % 10 === 0) saveState(state);
       } catch (err) {
         log(`  failed on "${item.name}": ${err.message} (will retry next run)`);
       }

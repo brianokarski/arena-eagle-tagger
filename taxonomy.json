@@ -1,0 +1,13 @@
+{
+  "_comment": "Controlled vocabulary for AI tagging. Keys are categories, values are subcategories. When a subcategory applies, its category tag is applied too. Edit freely — the tagger reads this on every run.",
+  "wordmarks": ["serif", "sans-serif", "hand-drawn"],
+  "logos": ["symbols"],
+  "illustration": ["vector", "airbrush"],
+  "layout": [],
+  "art direction": [],
+  "photography": ["lifestyle", "still life object", "studio", "portrait"],
+  "typography": [],
+  "packaging": [],
+  "motion": [],
+  "ui": []
+}

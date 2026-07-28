@@ -38,9 +38,12 @@ async function main() {
       }
       break;
     }
-    case "tag":
-      await runAiTagging({ config, eagle, state });
+    case "tag": {
+      const limitFlag = rest.find((f) => f.startsWith("--limit="));
+      const limit = limitFlag ? Number(limitFlag.split("=")[1]) : Infinity;
+      await runAiTagging({ config, eagle, state, limit });
       break;
+    }
     case "ui":
       await runUi({});
       break;
