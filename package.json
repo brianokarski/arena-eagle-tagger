@@ -1,0 +1,19 @@
+{
+  "name": "arena-eagle-sync",
+  "version": "0.1.0",
+  "description": "One-way sync from Are.na channels into an Eagle.cool library, with auto-tagging.",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "sync": "node src/cli.js sync",
+    "ui": "node src/cli.js ui",
+    "tag": "node src/cli.js tag",
+    "status": "node src/cli.js status",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.110.0"
+  }
+}
