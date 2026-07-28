@@ -2,13 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { blockToItem, buildTags, sourceDomain } from "../src/sync.js";
 
+// Shape matches the Are.na v3 API (see https://api.are.na/v3/openapi.json).
 const imageBlock = {
   id: 123,
-  class: "Image",
+  type: "Image",
   title: "Nice Poster",
-  description: "A poster I liked",
+  description: { plain: "A poster I liked" },
   source: { url: "https://www.behance.net/gallery/1" },
-  image: { original: { url: "https://images.are.na/original/abc.jpg" } },
+  image: { src: "https://d2w9rnfcy7mm78.cloudfront.net/123/original_abc.jpg" },
 };
 
 test("sourceDomain strips www and handles bad urls", () => {
@@ -36,7 +37,7 @@ test("buildTags respects disabled options", () => {
 
 test("blockToItem maps an image block", () => {
   const item = blockToItem(imageBlock, "posters", { always: ["arena"] });
-  assert.equal(item.url, "https://images.are.na/original/abc.jpg");
+  assert.equal(item.url, "https://d2w9rnfcy7mm78.cloudfront.net/123/original_abc.jpg");
   assert.equal(item.name, "Nice Poster");
   assert.equal(item.website, "https://www.are.na/block/123");
   assert.match(item.annotation, /A poster I liked/);
@@ -45,7 +46,7 @@ test("blockToItem maps an image block", () => {
 
 test("blockToItem maps an attachment block", () => {
   const item = blockToItem(
-    { id: 9, class: "Attachment", attachment: { url: "https://x/f.pdf" } },
+    { id: 9, type: "Attachment", attachment: { url: "https://x/f.pdf" } },
     "docs",
     {}
   );
@@ -53,7 +54,17 @@ test("blockToItem maps an attachment block", () => {
   assert.equal(item.name, "arena-docs-9");
 });
 
-test("blockToItem skips text blocks and imageless links", () => {
-  assert.equal(blockToItem({ id: 1, class: "Text", content: "hi" }, "c", {}), null);
-  assert.equal(blockToItem({ id: 2, class: "Link", source: { url: "https://x" } }, "c", {}), null);
+test("blockToItem uses the preview image for links and embeds", () => {
+  const link = blockToItem(
+    { id: 5, type: "Link", image: { src: "https://x/preview.png" }, source: { url: "https://x" } },
+    "c",
+    {}
+  );
+  assert.equal(link.url, "https://x/preview.png");
+});
+
+test("blockToItem skips text, channel, and imageless link blocks", () => {
+  assert.equal(blockToItem({ id: 1, type: "Text", content: { plain: "hi" } }, "c", {}), null);
+  assert.equal(blockToItem({ id: 2, type: "Link", source: { url: "https://x" } }, "c", {}), null);
+  assert.equal(blockToItem({ id: 3, type: "Channel", title: "sub" }, "c", {}), null);
 });

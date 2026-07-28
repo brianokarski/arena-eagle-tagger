@@ -1,4 +1,5 @@
-const API_BASE = "https://api.are.na/v2";
+// Are.na v3 API client (v2 is being wound down — https://www.are.na/developers).
+const API_BASE = "https://api.are.na/v3";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -39,34 +40,33 @@ export class ArenaClient {
     }
   }
 
+  // Paginate a v3 list endpoint via its meta envelope.
+  async paginate(path, params = {}) {
+    const all = [];
+    for (let page = 1; ; page++) {
+      const { data, meta } = await this.request(path, { ...params, per: 100, page });
+      all.push(...(data ?? []));
+      if (!meta?.has_more_pages) break;
+    }
+    return all;
+  }
+
   async me() {
     return this.request("/me");
   }
 
-  // All channels belonging to a user, paginated.
+  // All channels the user owns or collaborates on (includes private + group channels).
   async userChannels(userId) {
-    const channels = [];
-    const per = 50;
-    for (let page = 1; ; page++) {
-      const data = await this.request(`/users/${userId}/channels`, { per, page });
-      const batch = data.channels ?? [];
-      channels.push(...batch);
-      if (batch.length < per) break;
-    }
-    return channels;
+    return this.paginate(`/users/${userId}/contents`, { type: "Channel" });
   }
 
-  // Every block in a channel, paginated. Channels are modest in size, so we
-  // always walk the full list and let the caller skip already-synced blocks.
-  async channelContents(slug) {
-    const blocks = [];
-    const per = 100;
-    for (let page = 1; ; page++) {
-      const data = await this.request(`/channels/${encodeURIComponent(slug)}/contents`, { per, page });
-      const batch = data.contents ?? [];
-      blocks.push(...batch);
-      if (batch.length < per) break;
-    }
-    return blocks;
+  // Channels the user follows.
+  async followingChannels(userId) {
+    return this.paginate(`/users/${userId}/following`, { type: "Channel" });
+  }
+
+  // Every block in a channel. `id` may be a numeric channel id or a slug.
+  async channelContents(id) {
+    return this.paginate(`/channels/${encodeURIComponent(id)}/contents`);
   }
 }
