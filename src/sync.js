@@ -119,8 +119,11 @@ async function recordEagleIds(eagle, state, arenaTag) {
   return byWebsite;
 }
 
-// A block connected to several synced channels keeps one file in Eagle but is
-// linked into every channel's folder (Eagle items can live in many folders).
+// A block connected to several synced channels keeps one file in Eagle and is
+// tagged with every channel it belongs to (filter by arena:<channel> to see it
+// in each context). Eagle's public HTTP API ignores the `folders` field on
+// item/update, so physical multi-folder placement isn't possible from here —
+// we still send it in case a future Eagle version honors it.
 async function crossLinkDuplicates(eagle, state, duplicates, byWebsite, log) {
   let linked = 0;
   for (const { blockId, slug } of duplicates) {
@@ -135,7 +138,7 @@ async function crossLinkDuplicates(eagle, state, duplicates, byWebsite, log) {
       entry.channels.push(slug);
       linked++;
     } catch (err) {
-      log(`  could not cross-link "${item.name}" into "${slug}": ${err.message}`);
+      log(`  could not tag "${item.name}" with "${slug}": ${err.message}`);
     }
   }
   return linked;
@@ -212,7 +215,9 @@ export async function runSync({ config, arena, eagle, state, full = false, log =
 
   log(
     `Done. Imported ${imported} new item(s).` +
-      (linked ? ` Cross-linked ${linked} duplicate(s) into additional folders (single file, multiple folders).` : "")
+      (linked
+        ? ` ${linked} duplicate(s) kept as a single file, tagged with every channel they appear in (filter by arena:<channel>).`
+        : "")
   );
   return { imported, linked };
 }
