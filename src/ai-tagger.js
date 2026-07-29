@@ -150,6 +150,13 @@ export async function runAiTagging({ config, eagle, state, limit = Infinity, log
         log(`  [${tagged}/${pending.length}] "${item.name.slice(0, 40)}" -> ${[...vocabTags, ...extraTags].join(", ") || "(no tags)"}`);
         if (tagged % 10 === 0) saveState(state);
       } catch (err) {
+        if (/usage limits|rate.?limit/i.test(err.message)) {
+          if (queue.length) {
+            log(`  API usage limit reached — pausing the tag pass (${queue.length + 1} item(s) left; they'll be picked up automatically once the limit resets).`);
+            queue.length = 0;
+          }
+          return;
+        }
         log(`  failed on "${item.name}": ${err.message} (will retry next run)`);
       }
     }
