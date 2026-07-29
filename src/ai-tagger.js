@@ -114,10 +114,13 @@ export async function runAiTagging({ config, eagle, state, limit = Infinity, log
         }
         const data = buf.toString("base64");
 
+        // Haiku-tier models don't accept the effort parameter.
+        const outputConfig = { format: schema };
+        if (!model.includes("haiku")) outputConfig.effort = "low";
         const response = await client.messages.create({
           model,
           max_tokens: 4096,
-          output_config: { effort: "low", format: schema },
+          output_config: outputConfig,
           messages: [
             {
               role: "user",
