@@ -306,9 +306,13 @@ export async function runUi({ log = console.log } = {}) {
       } else if (req.method === "POST" && req.url === "/api/channels") {
         let body = "";
         for await (const chunk of req) body += chunk;
-        config.channels = JSON.parse(body).channels;
-        saveConfig(config);
-        log(`Saved ${config.channels.length} channel(s) to config.json`);
+        // Re-read config.json so a long-running picker doesn't clobber
+        // settings changed elsewhere since it started.
+        const current = loadConfig();
+        current.channels = JSON.parse(body).channels;
+        config.channels = current.channels;
+        saveConfig(current);
+        log(`Saved ${current.channels.length} channel(s) to config.json`);
         res.writeHead(200, { "Content-Type": "application/json" }).end('{"ok":true}');
       } else {
         res.writeHead(404).end("not found");
