@@ -1,4 +1,4 @@
-# Tagg 'n Sync
+# Arena <> Eagle tagg 'n sync
 
 One-way sync from [Are.na](https://www.are.na) channels into an [Eagle](https://eagle.cool) library. Every image/attachment block lands in an Eagle folder per channel, tagged (`arena`, `arena:<channel>`, `src:<domain>`) with a backlink to the Are.na block — ready for Eagle filters and smart folders. An optional AI pass then categorizes every image against a vocabulary you define (typography, color, layout, poster, …) using the Claude or OpenAI API.
 

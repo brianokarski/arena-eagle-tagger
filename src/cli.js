@@ -10,7 +10,7 @@ import { runUi } from "./ui.js";
 const [command = "sync", ...rest] = process.argv.slice(2);
 const flags = new Set(rest);
 
-const usage = `Tagg 'n Sync
+const usage = `Arena <> Eagle tagg 'n sync
 
 Usage:
   node src/cli.js sync [--full] [--ai-tags]   Import new Are.na blocks into Eagle
