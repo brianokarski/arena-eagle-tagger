@@ -14,7 +14,7 @@ const usage = `arena-eagle-sync
 
 Usage:
   node src/cli.js sync [--full] [--ai-tags]   Import new Are.na blocks into Eagle
-  node src/cli.js tag                         AI-tag imported items (needs ANTHROPIC_API_KEY)
+  node src/cli.js tag [--limit=N]             AI-tag imported items (needs an Anthropic or OpenAI key)
   node src/cli.js ui                          Open the channel picker (writes config.json)
   node src/cli.js status                      Show what has been synced so far
 `;

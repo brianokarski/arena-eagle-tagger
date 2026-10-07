@@ -40,7 +40,7 @@ export function expandParents(tags, taxonomy) {
   return [...out];
 }
 
-function buildSchema(vocabulary, allowExtra) {
+export function buildSchema(vocabulary, allowExtra) {
   const properties = {
     tags: { type: "array", items: { type: "string", enum: vocabulary } },
   };
@@ -48,17 +48,14 @@ function buildSchema(vocabulary, allowExtra) {
     properties.extra = { type: "array", items: { type: "string" } };
   }
   return {
-    type: "json_schema",
-    schema: {
-      type: "object",
-      properties,
-      required: Object.keys(properties),
-      additionalProperties: false,
-    },
+    type: "object",
+    properties,
+    required: Object.keys(properties),
+    additionalProperties: false,
   };
 }
 
-function buildPrompt(taxonomy, allowExtra, maxExtra) {
+export function buildPrompt(taxonomy, allowExtra, maxExtra) {
   const lines = Object.entries(taxonomy)
     .map(([cat, subs]) => (subs.length ? `- ${cat}: ${subs.join(", ")}` : `- ${cat}`))
     .join("\n");
@@ -72,9 +69,89 @@ function buildPrompt(taxonomy, allowExtra, maxExtra) {
   );
 }
 
+const DEFAULT_MODELS = { anthropic: "claude-opus-5", openai: "gpt-4o-mini" };
+
+// Each classifier takes an image buffer and returns the parsed {tags, extra}
+// object, or null if the model declined to analyze the image.
+async function anthropicClassifier({ config, model, schema, prompt }) {
+  const { default: Anthropic } = await import("@anthropic-ai/sdk");
+  // Key from config.json (gitignored) or the ANTHROPIC_API_KEY environment variable.
+  const client = new Anthropic(config.anthropicApiKey ? { apiKey: config.anthropicApiKey } : {});
+  // Haiku-tier models don't accept the effort parameter.
+  const outputConfig = { format: { type: "json_schema", schema } };
+  if (!model.includes("haiku")) outputConfig.effort = "low";
+
+  return async (buf, mediaType) => {
+    const response = await client.messages.create({
+      model,
+      max_tokens: 4096,
+      output_config: outputConfig,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "image", source: { type: "base64", media_type: mediaType, data: buf.toString("base64") } },
+            { type: "text", text: prompt },
+          ],
+        },
+      ],
+    });
+    if (response.stop_reason === "refusal") return null;
+    return JSON.parse(response.content.find((b) => b.type === "text")?.text ?? "{}");
+  };
+}
+
+export function buildOpenAiRequest({ model, schema, prompt, buf, mediaType }) {
+  return {
+    model,
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: prompt },
+          {
+            type: "image_url",
+            image_url: { url: `data:${mediaType};base64,${buf.toString("base64")}`, detail: "low" },
+          },
+        ],
+      },
+    ],
+    response_format: { type: "json_schema", json_schema: { name: "image_tags", strict: true, schema } },
+  };
+}
+
+// Plain fetch against the Chat Completions API — no SDK dependency.
+function openaiClassifier({ config, model, schema, prompt }) {
+  // Key from config.json (gitignored) or the OPENAI_API_KEY environment variable.
+  const apiKey = config.openaiApiKey ?? process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error('No OpenAI key. Set OPENAI_API_KEY or put it in config.json as "openaiApiKey".');
+  }
+  const baseUrl = (config.aiTags?.baseUrl ?? "https://api.openai.com/v1").replace(/\/$/, "");
+
+  return async (buf, mediaType) => {
+    const res = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify(buildOpenAiRequest({ model, schema, prompt, buf, mediaType })),
+    });
+    if (!res.ok) {
+      const detail = (await res.text()).slice(0, 300);
+      throw new Error(res.status === 429 ? `rate limit (429): ${detail}` : `OpenAI API returned ${res.status}: ${detail}`);
+    }
+    const message = (await res.json()).choices?.[0]?.message;
+    if (!message || message.refusal) return null;
+    return JSON.parse(message.content ?? "{}");
+  };
+}
+
 export async function runAiTagging({ config, eagle, state, limit = Infinity, log = console.log }) {
   const aiCfg = config.aiTags ?? {};
-  const model = aiCfg.model ?? "claude-opus-5";
+  const provider = aiCfg.provider ?? "anthropic";
+  if (provider !== "anthropic" && provider !== "openai") {
+    throw new Error(`config.json "aiTags.provider" must be "anthropic" or "openai" (got "${provider}").`);
+  }
+  const model = aiCfg.model ?? DEFAULT_MODELS[provider];
   const allowExtra = aiCfg.extraTags !== false;
   const maxExtra = aiCfg.maxExtra ?? 3;
 
@@ -83,9 +160,10 @@ export async function runAiTagging({ config, eagle, state, limit = Infinity, log
   const schema = buildSchema(vocabulary, allowExtra);
   const prompt = buildPrompt(taxonomy, allowExtra, maxExtra);
 
-  const { default: Anthropic } = await import("@anthropic-ai/sdk");
-  // Key from config.json (gitignored) or the ANTHROPIC_API_KEY environment variable.
-  const client = new Anthropic(config.anthropicApiKey ? { apiKey: config.anthropicApiKey } : {});
+  const classify =
+    provider === "openai"
+      ? openaiClassifier({ config, model, schema, prompt })
+      : await anthropicClassifier({ config, model, schema, prompt });
 
   const { listArenaItems } = await import("./sync.js");
   const items = await listArenaItems(eagle);
@@ -112,32 +190,12 @@ export async function runAiTagging({ config, eagle, state, limit = Infinity, log
           state.aiTagged[item.id] = true; // not a recognizable image; skip permanently
           continue;
         }
-        const data = buf.toString("base64");
-
-        // Haiku-tier models don't accept the effort parameter.
-        const outputConfig = { format: schema };
-        if (!model.includes("haiku")) outputConfig.effort = "low";
-        const response = await client.messages.create({
-          model,
-          max_tokens: 4096,
-          output_config: outputConfig,
-          messages: [
-            {
-              role: "user",
-              content: [
-                { type: "image", source: { type: "base64", media_type: mediaType, data } },
-                { type: "text", text: prompt },
-              ],
-            },
-          ],
-        });
-        if (response.stop_reason === "refusal") {
+        const parsed = await classify(buf, mediaType);
+        if (!parsed) {
           log(`  skipped "${item.name}" (model declined to analyze the image)`);
           state.aiTagged[item.id] = true;
           continue;
         }
-        const text = response.content.find((b) => b.type === "text")?.text ?? "{}";
-        const parsed = JSON.parse(text);
         const vocabTags = expandParents(parsed.tags ?? [], taxonomy);
         const extraTags = (parsed.extra ?? [])
           .slice(0, maxExtra)
