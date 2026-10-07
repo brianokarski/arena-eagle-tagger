@@ -4,7 +4,7 @@ You are setting this tool up for someone who was sent this repo by a friend. Rea
 
 ## What this is
 
-`arena-eagle-sync` is a small Node CLI (no build step, ES modules, one optional dependency) that:
+Tagg 'n Sync is a small Node CLI (no build step, ES modules, one optional dependency) that:
 
 1. Copies image blocks from the owner's [Are.na](https://www.are.na) channels into their local [Eagle](https://eagle.cool) library, one Eagle folder per channel (`npm run sync`).
 2. Runs a vision model over each imported image and writes category tags onto the Eagle item (`npm run tag`). The allowed tags come from `taxonomy.json`.

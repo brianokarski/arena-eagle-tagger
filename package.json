@@ -1,7 +1,7 @@
 {
-  "name": "arena-eagle-sync",
+  "name": "tagg-n-sync",
   "version": "0.1.0",
-  "description": "One-way sync from Are.na channels into an Eagle.cool library, with auto-tagging.",
+  "description": "Tag and sync: pull Are.na channels into an Eagle.cool library and categorize every image with AI.",
   "type": "module",
   "engines": {
     "node": ">=18"
